@@ -6,6 +6,7 @@ import logging.handlers
 from twisted.internet import reactor, defer, task
 from twisted.internet.serialport import SerialPort
 from twisted.internet.protocol import Factory, Protocol
+from twisted.protocols.basic import LineReceiver
 
 from serial import PARITY_NONE, PARITY_EVEN, PARITY_ODD
 from serial import STOPBITS_ONE, STOPBITS_TWO
@@ -23,13 +24,15 @@ logger.addHandler(handler)
 print('hello work')
 logger.debug('Hello')
 
-class MDB(Protocol):
+class MDB(LineReceiver):
 
     sent = False
 
     def __init__(self):
         self.req = None
+        self.setRawMode()
         self.lock = defer.DeferredLock()
+        self.data = ''
 
     def connectionMade(self):
         print "Connected"
@@ -41,13 +44,18 @@ class MDB(Protocol):
         # self.transport.write('\x02\x88\x0B')
         # self.transport.write('\x02\x88\x0C\xFF\xFF\xFF\xFF')
 
-    def dataReceived(self, data):
-        # if self.req:
-            # str_data = ' '.join(["0x%0.2X"%ord(c) for c in data])
-            # self.defer.callback(str_data)
-        # print "data received: {}".format(str_data)
+    def rawDataReceived(self, data):
         str_data = ' '.join(["0x%0.2X"%ord(c) for c in data])
-        print "data received: {}".format(str_data)
+        # print "data received: {}".format(str_data)
+        if self.req:
+            self.data = self.data + data
+            if self.req[1]=='\x88' and len(self.data)<2:
+                # print 'data too small: {}'.format(data)
+                return
+            str_data = ' '.join(["0x%0.2X"%ord(c) for c in self.data])
+            self.defer.callback(str_data)
+        # str_data = ' '.join(["0x%0.2X"%ord(c) for c in data])
+        # print "data received: {}".format(str_data)
 
         # if not self.sent:
             # print "coin type"
@@ -55,7 +63,7 @@ class MDB(Protocol):
             # self.transport.write('\x03\x88\x0D\x01')
             # self.sent = True
         # else:
-        self.transport.write('\x02\x88\x0B')
+        # self.transport.write('\x02\x88\x0B')
         # self.transport.write('\x02\x88\x33')
 
     def payout(self):
@@ -85,18 +93,30 @@ class MDB(Protocol):
                 ValueError("No answer after %ss" % self.timeout)), d)
         # packet = self.dec.encode(req)
         self.transport.write(req)
-        results = yield self.defer
+        try:
+            results = yield self.defer
+        except Exception as e:
+            print e
+
         timedefer.cancel()
         self.req = None
+        self.data = ''
         defer.returnValue(results)
 
     def charger_init(self):
+        print 'send init'
         return self.call('\x02\x85\x0A')
+
+    def mdb_reset(self):
+        print 'send reset'
+        return self.call('\x02\x88\x08')
 
     @defer.inlineCallbacks
     def charger_poll(self):
+        # print "start poll"
         result = yield self.call('\x02\x88\x0B')
         print "Polling: {}".format(result)
+        # print "end poll"
         defer.returnValue(result)
 
     def charger_payin(self):
@@ -107,9 +127,11 @@ class MDB(Protocol):
     def work(self):
         result = yield self.charger_init()
         print "init result: {}".format(result)
+        # result = yield self.mdb_reset()
+        # print "reset result: {}".format(result)
 
         # loop = task.LoopingCall(self.charger_poll)
-        # loop.start(0.5)
+        # loop.start(1.5)
         while True:
             yield self.charger_poll()
 
@@ -117,8 +139,8 @@ class MDB(Protocol):
         # result = yield self.charger_poll()
         # print "poll result: {}".format(result)
 
-        result = yield self.charger_payin()
-        print "payin result: {}".format(result)
+        # result = yield self.charger_payin()
+        # print "payin result: {}".format(result)
 
 
 
@@ -128,8 +150,8 @@ SerialPort(
     proto, '/dev/ttyUSB0', reactor,
     baudrate='38400', parity=PARITY_NONE,
     bytesize=EIGHTBITS, stopbits=STOPBITS_ONE)
-# reactor.callLater(1, proto.work)
-# reactor.callLater(3, proto.payin)
+reactor.callLater(1, proto.work)
+reactor.callLater(3, proto.charger_payin)
 # reactor.callLater(4, proto.payout)
 print "run reactor"
 reactor.run()
