@@ -71,10 +71,15 @@ class Changer(MDBDevice):
             if (ord(data) &  ord('\x80')) >> 7:
                 logger.debug("Coin dispensed")
             elif (ord(data) &  ord('\xC0')) >> 6:
-                coin_routing = (ord(data) & ord('\x30')) >> 4
+                routing = (ord(data) & ord('\x30')) >> 4
                 coin = (ord(data) & ord('\x0F'))
-                logger.debug(
-                    "Coin deposited({}): {}".format(
-                        COINT_ROUTING[coin_routing], COINS[coin]))
-        defer.returnValue(result)
+                self.deposited(coin, routing)
+
+    def dispensed(self, coin, count, in_tube=None):
+        pass
+
+    def deposited(self, coin, routing=1, in_tube=None):
+        logger.debug(
+            "Coin deposited({}): {}".format(
+                COINT_ROUTING[routing], COINS[coin]))
 
