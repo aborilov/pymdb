@@ -44,14 +44,22 @@ class Kiosk(object):
             except Exception:
                 logger.exception('Error while polling')
 
+    def start_changer(self):
+        self.changer.start_accept()
+
+    def stop_changer(self):
+        self.changer.stop_accept()
+
 if __name__ == '__main__':
     proto = MDB()
     SerialPort(
         #  proto, '/dev/ttyUSB0', reactor,
-        proto, '/dev/ttyS0', reactor,
+        proto, '/dev/ttyUSB0', reactor,
         baudrate='38400', parity=PARITY_NONE,
         bytesize=EIGHTBITS, stopbits=STOPBITS_ONE)
     kiosk = Kiosk(proto)
-    reactor.callLater(1, kiosk.loop)
+    reactor.callLater(0, kiosk.loop)
+    reactor.callLater(3, kiosk.start_changer)
+    #  reactor.callLater(15, kiosk.stop_changer)
     logger.debug("run reactor")
     reactor.run()

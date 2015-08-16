@@ -1,6 +1,6 @@
 import logging
 
-from twisted.internet import defer, reactor
+from twisted.internet import defer, reactor, task
 from twisted.protocols.basic import LineReceiver
 
 logger = logging.getLogger()
@@ -28,10 +28,13 @@ def log_result(f):
         defer.returnValue(result)
     return pretty_log
 
+ACK = '/x01/x00'
+MODEBIT = '/x01'
 
 class MDB(LineReceiver):
 
     timeout = 0.3
+
 
     def __init__(self):
         self.req = None
@@ -48,25 +51,51 @@ class MDB(LineReceiver):
     def call(self, req):
         return self.lock.run(self._call, req)
 
+    @defer.inlineCallbacks
     def _call(self, req):
         self.data = ''
-        d = defer.Deferred()
         if self.req:
             raise ValueError(
                 "call %s while %s request in progress" % (
                     pretty(req), pretty(self.req)))
         self.req = req
-
-        def timeout(d):
+        try:
+            self.transport.write(req)
+        except Exception as e:
+            logger.exception("Error while write to transport")
+            self.req = None
+            raise e
+        # sleep for timeout
+        yield task.deferLater(reactor, self.timeout, defer.passthru, None)
+        self.req = None
+        try:
             if self.data:
-                self.req = None
-                d.callback(self.data)
-                self.data = ''
+                # return as is for ACK, NAK and RET
+                if len(self.data) == 2:
+                    defer.returnValue(self.data)
+                # check if send command with mode bit
+                # and remove all garbage if needed
+                command = req[1]
+                if command == '\x88':
+                    data = self.data[1::2]
+                    modebits = self.data[::2]
+                    if modebits[-1] == MODEBIT:
+                        raise ValueError('No modebit at the end')
+                    data = self.checksum(data)
+                    defer.returnValue(data)
+
             else:
-                logger.debug("Timeout")
-        self.transport.write(req)
-        reactor.callLater(self.timeout, timeout, d)
-        return d
+                raise ValueError("Timeout")
+        except Exception as e:
+            logger.exception("Error while parse answer")
+        defer.returnValue(self.data)
+
+    def checksum(self, data):
+        chk = data[-1]
+        data = data[:-1]
+        if sum(map(ord, data)) == ord(chk):
+            return data
+        raise ValueError('Wrong checksum, data:{}, chk:{}'.format(data, chk))
 
     @log_result
     def mdb_init(self):
