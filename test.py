@@ -27,7 +27,7 @@ class Kiosk(object):
 
     def __init__(self, proto):
         self.proto = proto
-        self.changer = Changer(proto)
+        self.changer = RUChanger(proto)
         #  self.bill = BillValidator(proto)
 
     @defer.inlineCallbacks
@@ -49,6 +49,27 @@ class Kiosk(object):
 
     def stop_changer(self):
         self.changer.stop_accept()
+
+
+class RUChanger(Changer):
+
+    COINS = {
+        0: 1,
+        1: 2,
+        2: 5,
+        4: 10
+    }
+
+    def start_accept(self):
+        return self.coin_type(coins='\xFF\xFF')
+
+    def stop_accept(self):
+        return self.coin_type(coins='\x00\x00')
+
+    def deposited(self, coin, routing=1, in_tube=None):
+        logger.debug(
+            "Coin deposited({}): {}".format(
+                Changer.COINT_ROUTING[routing], self.COINS[coin]))
 
 if __name__ == '__main__':
     proto = MDB()

@@ -1,7 +1,6 @@
 from twisted.internet import defer
 from mdb_device import MDBDevice
 from ..protocol.mdb import log_result, encode
-from ..protocol import mdb
 
 import logging
 
@@ -29,12 +28,7 @@ COINT_ROUTING = {
     3: "Reject"
 }
 
-COINS = {
-    0: 1,
-    1: 2,
-    2: 5,
-    4: 10
-}
+
 class Changer(MDBDevice):
 
     commands = {
@@ -49,17 +43,11 @@ class Changer(MDBDevice):
         request = encode(self.commands['coin_type'], coins+"\x00\x00")
         return self.proto.call(request)
 
-    def start_accept(self):
-        return self.coin_type(coins='\xFF\xFF')
-
-    def stop_accept(self):
-        return self.coin_type(coins='\x00\x00')
-
     @defer.inlineCallbacks
     def poll(self):
         result = yield super(Changer, self).poll()
         #  if result == mdb.ACK:
-            #  defer.returnValue(result)
+        #      defer.returnValue(result)
         # just status
         if len(result) == 1:
             if result in STATUS:
@@ -68,18 +56,54 @@ class Changer(MDBDevice):
         if len(result) == 2:
             coin_in_tube = ord(result[1])
             data = result[0]
-            if (ord(data) &  ord('\x80')) >> 7:
+            if (ord(data) & ord('\x80')) >> 7:
                 logger.debug("Coin dispensed")
-            elif (ord(data) &  ord('\xC0')) >> 6:
+            elif (ord(data) & ord('\xC0')) >> 6:
                 routing = (ord(data) & ord('\x30')) >> 4
                 coin = (ord(data) & ord('\x0F'))
-                self.deposited(coin, routing)
+                self.deposited(coin, routing, in_tube=coin_in_tube)
 
     def dispensed(self, coin, count, in_tube=None):
         pass
 
     def deposited(self, coin, routing=1, in_tube=None):
-        logger.debug(
-            "Coin deposited({}): {}".format(
-                COINT_ROUTING[routing], COINS[coin]))
+        pass
 
+    def escrow_request1(self):
+        pass
+
+    def changer_payout_busy2(self):
+        pass
+
+    def no_credit1(self):
+        pass
+
+    def defective_tube_sensor1(self):
+        pass
+
+    def double_arrival1(self):
+        pass
+
+    def acceptor_unplugged2(self):
+        pass
+
+    def tube_jam1(self):
+        pass
+
+    def rom_checksum_error1(self):
+        pass
+
+    def coin_routing_error1(self):
+        pass
+
+    def changer_busy2(self):
+        pass
+
+    def changer_was_reset1(self):
+        pass
+
+    def coin_jam1(self):
+        pass
+
+    def possible_credited_coin_removal1(self):
+        pass
