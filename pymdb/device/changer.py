@@ -5,6 +5,7 @@ from ..protocol.mdb import log_result, encode
 import logging
 
 logger = logging.getLogger()
+
 STATUS = {
     '\x01': 'Escrow request1',
     '\x02': 'Changer Payout Busy2',
