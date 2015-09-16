@@ -3,7 +3,7 @@
 import logging
 import logging.handlers
 
-from twisted.internet import reactor, defer
+from twisted.internet import reactor, defer, task
 from twisted.internet.serialport import SerialPort
 
 from serial import PARITY_NONE
@@ -11,7 +11,7 @@ from serial import STOPBITS_ONE
 from serial import EIGHTBITS
 
 from pymdb.protocol.mdb import MDB
-from pymdb.device.changer import Changer
+from pymdb.device.changer import Changer, COINT_ROUTING
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -27,28 +27,40 @@ class Kiosk(object):
 
     def __init__(self, proto):
         self.proto = proto
-        self.changer = RUChanger(proto)
+        self.changer = RUChanger(proto, self)
+        self.waiter = None
         #  self.bill = BillValidator(proto)
 
     @defer.inlineCallbacks
     def loop(self):
         yield self.proto.mdb_init()
         yield self.changer.reset()
-        # yield self.bill.reset()
-        # yield self.bill.bill_type()
-        # yield self.bill.escrow()
-        while True:
-            try:
-                yield self.changer.poll()
-                # yield self.bill.poll()
-            except Exception:
-                logger.exception('Error while polling')
+        self.changer.start_polling()
 
-    def start_changer(self):
-        self.changer.start_accept()
+    @defer.inlineCallbacks
+    def accept(self, amount):
+        yield self.changer.start_accept()
+        try:
+            summ = 0
+            while summ < amount:
+                self.waiter = defer.Deferred()
+                timedefer = reactor.callLater(10, defer.timeout, self.waiter)
+                s = yield self.waiter
+                if timedefer.active():
+                    timedefer.cancel()
+                summ += s
+                logger.debug("Have summ: {}".format(summ))
+            logger.debug("Final summ: {}".format(summ))
+            defer.returnValue(summ)
+        except Exception:
+            logger.exception("While get amount")
+        finally:
+            yield self.changer.stop_accept()
 
-    def stop_changer(self):
-        self.changer.stop_accept()
+    def deposited(self, amount):
+        logger.debug("Deposited: {}".format(amount))
+        if self.waiter:
+            self.waiter.callback(amount)
 
 
 class RUChanger(Changer):
@@ -60,6 +72,10 @@ class RUChanger(Changer):
         4: 10
     }
 
+    def __init__(self, proto, kiosk):
+        super(RUChanger, self).__init__(proto)
+        self.kiosk = kiosk
+
     def start_accept(self):
         return self.coin_type(coins='\xFF\xFF')
 
@@ -69,7 +85,10 @@ class RUChanger(Changer):
     def deposited(self, coin, routing=1, in_tube=None):
         logger.debug(
             "Coin deposited({}): {}".format(
-                Changer.COINT_ROUTING[routing], self.COINS[coin]))
+                COINT_ROUTING[routing], self.COINS[coin]))
+        if routing == 1:
+            self.kiosk.deposited(self.COINS[coin])
+
 
 if __name__ == '__main__':
     proto = MDB()
@@ -80,7 +99,7 @@ if __name__ == '__main__':
         bytesize=EIGHTBITS, stopbits=STOPBITS_ONE)
     kiosk = Kiosk(proto)
     reactor.callLater(0, kiosk.loop)
-    reactor.callLater(3, kiosk.start_changer)
+    reactor.callLater(3, kiosk.accept, 15)
     #  reactor.callLater(15, kiosk.stop_changer)
     logger.debug("run reactor")
     reactor.run()
