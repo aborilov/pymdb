@@ -1,11 +1,7 @@
-import logging
-
 from twisted.internet import task
 
 from ..protocol.mdb import log_result
 from ..protocol.mdb import encode
-
-logger = logging.getLogger()
 
 
 class MDBDevice(object):

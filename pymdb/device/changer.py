@@ -4,7 +4,7 @@ from ..protocol.mdb import log_result, encode
 
 import logging
 
-logger = logging.getLogger()
+logger = logging.getLogger('pymdb')
 
 STATUS = {
     '\x01': 'Escrow request1',
