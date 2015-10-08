@@ -1,6 +1,6 @@
 from twisted.internet import defer
 from mdb_device import MDBDevice
-from ..protocol.mdb import log_result, encode
+from ..protocol.mdb import log_result, encode, ACK
 
 import logging
 
@@ -32,6 +32,8 @@ COINT_ROUTING = {
 
 class Changer(MDBDevice):
 
+    waiters = []
+
     commands = {
         'reset': '\x08',
         'poll': '\x0B',
@@ -47,8 +49,10 @@ class Changer(MDBDevice):
     @defer.inlineCallbacks
     def poll(self):
         result = yield super(Changer, self).poll()
-        #  if result == mdb.ACK:
-        #      defer.returnValue(result)
+        if result == ACK:
+            while self.waiters:
+                waiter = self.waiters.pop()
+                waiter.callback(None)
         # just status
         if len(result) == 1:
             if result in STATUS:
@@ -63,6 +67,16 @@ class Changer(MDBDevice):
                 routing = (ord(data) & ord('\x30')) >> 4
                 coin = (ord(data) & ord('\x0F'))
                 self.deposited(coin, routing, in_tube=coin_in_tube)
+
+    @defer.inlineCallbacks
+    def dispense(self, coin, count):
+        data = chr((count << 4) + coin)
+        logger.debug("try to dispense with data 0x%0.2X" % ord(data))
+        request = encode(self.commands['dispense'], data)
+        yield self.proto.call(request)
+        waiter = defer.Deferred()
+        self.waiters.append(waiter)
+        yield waiter
 
     def dispensed(self, coin, count, in_tube=None):
         pass

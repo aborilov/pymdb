@@ -28,7 +28,7 @@ def log_result(f):
         defer.returnValue(result)
     return pretty_log
 
-ACK = '/x01/x00'
+ACK = '\x01\x00'
 MODEBIT = '/x01'
 
 class MDB(LineReceiver):
