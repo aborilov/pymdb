@@ -3,7 +3,7 @@ import logging
 from twisted.internet import defer, reactor, task
 from twisted.protocols.basic import LineReceiver
 
-logger = logging.getLogger()
+logger = logging.getLogger('pymdb')
 
 
 def pretty(data):
