@@ -3,6 +3,8 @@ import logging
 from twisted.internet import defer, reactor, task
 from twisted.protocols.basic import LineReceiver
 
+from exceptions import TimeoutException
+
 logger = logging.getLogger('pymdb')
 
 
@@ -22,10 +24,14 @@ def log_result(f):
         if self.__class__:
             clazz = self.__class__.__name__
         logger.debug("{}.{} ->".format(clazz, f.func_name))
-        result = yield f(self, *args, **kwargs)
-        str_data = pretty(result)
-        logger.debug("{}.{} <- {}".format(clazz, f.func_name, str_data))
-        defer.returnValue(result)
+        try:
+            result = yield f(self, *args, **kwargs)
+            str_data = pretty(result)
+            logger.debug("{}.{} <- {}".format(clazz, f.func_name, str_data))
+            defer.returnValue(result)
+        except Exception as e:
+            logger.error("pretty_log error: " + str(e))
+            raise e
     return pretty_log
 
 ACK = '\x01\x00'
@@ -68,26 +74,26 @@ class MDB(LineReceiver):
         # sleep for timeout
         yield task.deferLater(reactor, self.timeout, defer.passthru, None)
         self.req = None
-        try:
-            if self.data:
-                # return as is for ACK, NAK and RET
-                if len(self.data) == 2:
-                    defer.returnValue(self.data)
-                # check if send command with mode bit
-                # and remove all garbage if needed
-                command = req[1]
-                if command == '\x88':
-                    data = self.data[1::2]
-                    modebits = self.data[::2]
-                    if modebits[-1] == MODEBIT:
-                        raise ValueError('No modebit at the end')
-                    data = self.checksum(data)
-                    defer.returnValue(data)
+#         try:
+        if self.data:
+            # return as is for ACK, NAK and RET
+            if len(self.data) == 2:
+                defer.returnValue(self.data)
+            # check if send command with mode bit
+            # and remove all garbage if needed
+            command = req[1]
+            if command == '\x88':
+                data = self.data[1::2]
+                modebits = self.data[::2]
+                if modebits[-1] == MODEBIT:
+                    raise ValueError('No modebit at the end')
+                data = self.checksum(data)
+                defer.returnValue(data)
 
-            else:
-                raise ValueError("Timeout")
-        except Exception as e:
-            logger.exception("Error while parse answer")
+        else:
+            raise TimeoutException("Timeout")
+#         except Exception as e:
+#             raise e
         defer.returnValue(self.data)
 
     def checksum(self, data):
