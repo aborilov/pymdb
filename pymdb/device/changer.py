@@ -83,7 +83,7 @@ class Changer(MDBDevice):
         return self._coins[coin]
 
     def start_accept(self):
-        # TODO формировать маску в зависимости от поддерживаемых монет
+        # TODO С„РѕСЂРјРёСЂРѕРІР°С‚СЊ РјР°СЃРєСѓ РІ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё РѕС‚ РїРѕРґРґРµСЂР¶РёРІР°РµРјС‹С… РјРѕРЅРµС‚
         return self.coin_type(coins='\xFF\xFF')
 
     def stop_accept(self):
