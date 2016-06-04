@@ -217,16 +217,24 @@ class BillValidator(MDBDevice):
         self._start_init()
 
     def online(self):
-        pass
+        logger.debug("validator online")
+        dispatcher.send_minimal(
+            sender=self, signal='online')
 
     def offline(self):
-        pass
+        logger.debug("validator offline")
+        dispatcher.send_minimal(
+            sender=self, signal='offline')
 
     def initialized(self):
-        pass
+        logger.debug("validator initialized")
+        dispatcher.send_minimal(
+            sender=self, signal='initialized')
 
     def error(self, error_code, error_text):
-        pass
+        logger.debug("validator error({}): {}".format(ord(error_code), error_text))
+        dispatcher.send_minimal(
+            sender=self, signal='error', error_code=error_code, error_text=error_text)
 
     def validator_was_reset1(self, status_code):
         reactor.callLater(self.request_status_delay, self._request_status)

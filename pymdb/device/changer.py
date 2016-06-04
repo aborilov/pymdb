@@ -1,5 +1,7 @@
 from twisted.internet import reactor, defer, task
 
+from louie import dispatcher
+
 from mdb_device import MDBDevice
 from ..protocol.mdb import log_result, encode, ACK
 
@@ -24,7 +26,6 @@ STATUS = {
 }
 
 _ERROR_NAMES = {
-    '\x03': 'No Credit1',
     '\x04': 'Defective Tube Sensor1',
     '\x07': 'Tube Jam1',
     '\x08': 'ROM checksum error1',
@@ -50,6 +51,7 @@ COINT_ROUTING = {
     3: "Reject"
 }
 
+COIN_TYPE_COUNT = 0x10
 
 class Changer(MDBDevice):
     
@@ -68,7 +70,7 @@ class Changer(MDBDevice):
         'dispense': '\x0D'
     }
 
-    _coin_count = [0] * 0x10
+    _coin_count = [0] * COIN_TYPE_COUNT
     
     def __init__(self, proto, coins):
         super(Changer, self).__init__(proto)
@@ -96,7 +98,57 @@ class Changer(MDBDevice):
         if coin_amount == 0:
             return 0
         return amount // coin_amount
-    
+
+    #TODO Выделить алгоритм в отдельный метод
+    def dispense_amount(self, amount):
+        if amount <= 0:
+            return
+        balance = amount
+        logger.debug("dispense_amount: start_balance={}".format(balance))
+        for coin_type in range(COIN_TYPE_COUNT - 1,-1,-1):
+            coin_amount = self.get_coin_amount(coin_type)
+            if (coin_amount <= 0):
+                continue
+            coin_count = self.coin_count_in_amount(coin_type, balance)
+            actual_coin_count = self.get_coin_count(coin_type)
+            if coin_count > actual_coin_count:
+                coin_count = actual_coin_count
+            logger.debug("dispense_amount: {} coins({}) in amount {}".format(coin_count, coin_amount, balance))
+            if coin_count > 0:
+                try:
+                    balance -= coin_amount * coin_count
+                    self._dispense_amount_impl(coin_type, coin_count)
+                except Exception as e:
+                    logger.exception("While dispense amount")
+        logger.debug("dispense_amount: end_balance={}".format(balance))
+
+    def _dispense_amount_impl(self, coin, count):
+        logger.debug("_dispense_amount_impl: need dispense {} coins({})".format(count, coin))
+        dispense_count = count
+        while dispense_count > 0:
+            coin_count = dispense_count if dispense_count <= COIN_TYPE_COUNT - 1 else COIN_TYPE_COUNT - 1
+            logger.debug("_dispense_amount_impl: need dispense {} coins({})".format(coin_count, coin))
+            # TODO ожидать окончания выдачи сдачи
+            self.dispense(coin=coin, count=coin_count)
+            dispense_count -= coin_count
+        
+    def can_dispense_amount(self, amount):
+        balance = amount
+        logger.debug("can_dispense_amount: start_balance={}".format(balance))
+        for coin_type in range(COIN_TYPE_COUNT - 1,-1,-1):
+            coin_amount = self.get_coin_amount(coin_type)
+            if (coin_amount <= 0):
+                continue
+            coin_count = self.coin_count_in_amount(coin_type, balance)
+            actual_coin_count = self.get_coin_count(coin_type)
+            if coin_count > actual_coin_count:
+                coin_count = actual_coin_count
+            logger.debug("can_dispense_amount: {} coins({}) in amount {}".format(coin_count, coin_amount, balance))
+            if coin_count > 0:
+                balance -= coin_amount * coin_count
+        logger.debug("can_dispense_amount: end_balance={}".format(balance))
+        return balance <= 0
+
     def start_device(self):
         if self._started:
             return
@@ -279,22 +331,40 @@ class Changer(MDBDevice):
         self._start_init()
 
     def online(self):
-        pass
+        logger.debug("changer online")
+        dispatcher.send_minimal(
+            sender=self, signal='online')
 
     def offline(self):
-        pass
+        logger.debug("changer offline")
+        dispatcher.send_minimal(
+            sender=self, signal='offline')
 
     def initialized(self):
-        pass
+        logger.debug("changer initialized")
+        dispatcher.send_minimal(
+            sender=self, signal='initialized')
 
     def error(self, error_code, error_text):
-        pass
+        logger.debug("changer error({}): {}".format(ord(error_code), error_text))
+        dispatcher.send_minimal(
+            sender=self, signal='error', error_code=error_code, error_text=error_text)
 
     def dispensed(self, coin, count, in_tube=None):
-        pass
+        amount = self.get_coin_amount(coin)
+        logger.debug(
+            "Coin dispensed({}): {}".format(count, amount))
+        if (count > 0) and (amount > 0):
+            dispatcher.send_minimal(
+                sender=self, signal='coin_out', count=count, amount=amount)
 
     def deposited(self, coin, routing=1, in_tube=None):
-        pass
+        amount = self.get_coin_amount(coin)
+        logger.debug(
+            "Coin deposited({}): {}".format(COINT_ROUTING[routing], amount))
+        if (routing == 1) and (amount > 0):
+            dispatcher.send_minimal(
+                sender=self, signal='coin_in', amount=amount)
 
     def escrow_request1(self, status_code):
         pass
