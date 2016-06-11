@@ -1,5 +1,7 @@
 from twisted.internet import reactor, defer, task
 
+from louie import dispatcher
+
 from mdb_device import MDBDevice
 from ..protocol.mdb import log_result, encode, ACK
 
@@ -112,20 +114,26 @@ class BillValidator(MDBDevice):
                     yield task.deferLater(reactor, self.reset_timeout, defer.passthru, None)
 
 
+    def stack_bill(self):
+        self.escrow(status='0x01')
+
+    def return_bill(self):
+        self.escrow(status='0x00')
+        
     @log_result
     def bill_type(self, bills):
         request = encode(self.commands['bill_type'], bills)
-        return self.proto.call(request)
+        return self.call(request)
 
     @log_result
-    def escrow(self):
-        request = encode(self.commands['escrow'], '\x00')
-        return self.proto.call(request)
+    def escrow(self, status='\x00'):
+        request = encode(self.commands['escrow'], status)
+        return self.call(request)
 
     @log_result
     def stacker(self):
         request = encode(self.commands['stacker'])
-        return self.proto.call(request)
+        return self.call(request)
 
     @defer.inlineCallbacks
     def _request_status(self):

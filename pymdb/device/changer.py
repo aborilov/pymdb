@@ -85,7 +85,7 @@ class Changer(MDBDevice):
         return self._coins[coin]
 
     def start_accept(self):
-        # TODO формировать маску в зависимости от поддерживаемых монет
+        # TODO 
         return self.coin_type(coins='\xFF\xFF')
 
     def stop_accept(self):
@@ -99,7 +99,7 @@ class Changer(MDBDevice):
             return 0
         return amount // coin_amount
 
-    #TODO Выделить алгоритм в отдельный метод
+    #TODO select algorithm into separate method
     def dispense_amount(self, amount):
         if amount <= 0:
             return
@@ -128,7 +128,7 @@ class Changer(MDBDevice):
         while dispense_count > 0:
             coin_count = dispense_count if dispense_count <= COIN_TYPE_COUNT - 1 else COIN_TYPE_COUNT - 1
             logger.debug("_dispense_amount_impl: need dispense {} coins({})".format(coin_count, coin))
-            # TODO ожидать окончания выдачи сдачи
+            # TODO wait change dispense end
             self.dispense(coin=coin, count=coin_count)
             dispense_count -= coin_count
         
