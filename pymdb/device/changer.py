@@ -25,7 +25,12 @@ STATUS = {
     '\x0D': 'Possible Credited Coin Removal1'
 }
 
-_ERROR_NAMES = {
+ERROR_CODE_DEFECTIVE_TUBE_SENSOR = 0x04
+ERROR_CODE_TUBE_JAM = 0x07
+ERROR_CODE_ROM_CHECKSUM_ERROR = 0x08
+ERROR_CODE_COIN_JAM = 0x0c
+
+ERROR_NAMES = {
     '\x04': 'Defective Tube Sensor1',
     '\x07': 'Tube Jam1',
     '\x08': 'ROM checksum error1',
@@ -133,6 +138,9 @@ class Changer(MDBDevice):
             dispense_count -= coin_count
         
     def can_dispense_amount(self, amount):
+        if not self._online:
+            return False
+        
         balance = amount
         logger.debug("can_dispense_amount: start_balance={}".format(balance))
         for coin_type in range(COIN_TYPE_COUNT - 1,-1,-1):
@@ -298,8 +306,8 @@ class Changer(MDBDevice):
 #                 elif r == '\x0D':
 #                     self.possible_credited_coin_removal1(r)
                 
-                if r in _ERROR_NAMES:
-                    self.error(r, _ERROR_NAMES[r])
+                if r in ERROR_NAMES:
+                    self.error(r, ERROR_NAMES[r])
         
 
     def _set_state(self, state_name, state_value):
