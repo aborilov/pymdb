@@ -41,15 +41,24 @@ STATES = {
     'validator_disabled':  False  #'Validator Disabled2',
 }
 
+BILL_ROUTE_STACKED = 0
+BILL_ROUTE_ESCROW_POS = 1
+BILL_ROUTE_RETURNED = 2
+BILL_ROUTE_TO_RECYCLER = 3
+BILL_ROUTE_REJECTED = 4
+BILL_ROUTE_TO_RECYCLER_MANUAL = 5
+BILL_ROUTE_DISPENSE_MANUAL = 6
+BILL_ROUTE_FROM_RECYCLER_TO_CASHBOX = 7
+
 BILL_ROUTING = {
-    0: "Bill stacked",
-    1: "Escrow position",
-    2: "Bill returned",
-    3: "Bill to recycler",
-    4: "Disabled bill rejected",
-    5: "Bill to recycler - manual fill",
-    6: "Manual dispense",
-    7: "Transferred from recycler to cashbox"
+    BILL_ROUTE_STACKED: "Bill stacked",
+    BILL_ROUTE_ESCROW_POS: "Escrow position",
+    BILL_ROUTE_RETURNED: "Bill returned",
+    BILL_ROUTE_TO_RECYCLER: "Bill to recycler",
+    BILL_ROUTE_REJECTED: "Disabled bill rejected",
+    BILL_ROUTE_TO_RECYCLER_MANUAL: "Bill to recycler - manual fill",
+    BILL_ROUTE_DISPENSE_MANUAL: "Manual dispense",
+    BILL_ROUTE_FROM_RECYCLER_TO_CASHBOX: "Transferred from recycler to cashbox"
 }
 
 class BillValidator(MDBDevice):
@@ -73,6 +82,10 @@ class BillValidator(MDBDevice):
         super(BillValidator, self).__init__(proto)
         self._bills = bills
 
+    def get_bill_amount(self, bill):
+        if bill not in self._bills:
+            return 0
+        return self._bills[bill]
 
     def start_device(self):
         if self._started:
@@ -135,7 +148,7 @@ class BillValidator(MDBDevice):
         request = encode(self.commands['stacker'])
         return self.call(request)
 
-    @defer.inlineCallbacks
+#     @defer.inlineCallbacks
     def _request_status(self):
         #yield self._define_coin_count()
         #TODO request validator status
@@ -183,8 +196,19 @@ class BillValidator(MDBDevice):
         self._parse_status(result)
                 
     def _bill_routing(self, bill_route, bill_type):
-        #TODO parse message
-        return
+        if not bill_type in self._bills:
+            # unsupported bill type - return bill
+            reactor.callLater(0, self.return_bill)
+            return
+        if bill_route == BILL_ROUTE_ESCROW_POS:
+            self.fire_check_bill(bill_type)
+        elif bill_route == BILL_ROUTE_STACKED:
+            self.fire_bill_in(bill_type)
+        elif bill_route == BILL_ROUTE_RETURNED:
+            self.fire_bill_returned(bill_type)
+        else:
+            logger.debug('Unsupported bill routing: {} (bill_type={})'.format(bill_route, bill_type))
+        
         
     def _parse_status(self, response):
         if not response:
@@ -243,6 +267,24 @@ class BillValidator(MDBDevice):
         logger.debug("validator error({}): {}".format(ord(error_code), error_text))
         dispatcher.send_minimal(
             sender=self, signal='error', error_code=error_code, error_text=error_text)
+
+    def fire_check_bill(self, bill_type):
+        amount = self.get_bill_amount(bill_type)
+        logger.debug("Check bill ({})".format(amount))
+        dispatcher.send_minimal(
+            sender=self, signal='check_bill', amount=amount)
+
+    def fire_bill_in(self, bill_type):
+        amount = self.get_bill_amount(bill_type)
+        logger.debug("Bill accepted ({})".format(amount))
+        dispatcher.send_minimal(
+            sender=self, signal='bill_in', amount=amount)
+
+    def fire_bill_returned(self, bill_type):
+        amount = self.get_bill_amount(bill_type)
+        logger.debug("Bill returned ({})".format(amount))
+        dispatcher.send_minimal(
+            sender=self, signal='bill_returned', amount=amount)
 
     def validator_was_reset1(self, status_code):
         reactor.callLater(self.request_status_delay, self._request_status)
