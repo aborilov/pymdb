@@ -9,44 +9,59 @@ import logging
 
 logger = logging.getLogger('pymdb')
 
+STATUS_ESCROW_REQUEST = '\x01'
+STATUS_CHANGER_PAYOUT_BUSY = '\x02'
+STATUS_NO_CREDIT = '\x03'
+STATUS_DEFECTIVE_TUBE_SENSOR = '\x04'
+STATUS_DOUBLE_ARRIVAL = '\x05'
+STATUS_ACCEPTOR_UNPLUGGED = '\x06'
+STATUS_TUBE_JAM = '\x07'
+STATUS_ROM_CHECKSUM_ERROR = '\x08'
+STATUS_COIN_ROUTING_ERROR = '\x09'
+STATUS_CHANGER_BUSY = '\x0A'
+STATUS_CHANGER_RESET = '\x0B'
+STATUS_COIN_JAM = '\x0C'
+STATUS_POSSIBLE_CREDITED_COIN_REMOVAL = '\x0D'
+
+ERROR_CODE_DEFECTIVE_TUBE_SENSOR = STATUS_DEFECTIVE_TUBE_SENSOR
+ERROR_CODE_TUBE_JAM = STATUS_TUBE_JAM
+ERROR_CODE_ROM_CHECKSUM_ERROR = STATUS_ROM_CHECKSUM_ERROR
+ERROR_CODE_COIN_JAM = STATUS_COIN_JAM
+
 STATUS = {
-    '\x01': 'Escrow request1',
-    '\x02': 'Changer Payout Busy2',
-    '\x03': 'No Credit1',
-    '\x04': 'Defective Tube Sensor1',
-    '\x05': 'Double Arrival1',
-    '\x06': 'Acceptor Unplugged2',
-    '\x07': 'Tube Jam1',
-    '\x08': 'ROM checksum error1',
-    '\x09': 'Coin Routing Error1',
-    '\x0A': 'Changer Busy2',
-    '\x0B': 'Changer was Reset1',
-    '\x0C': 'Coin Jam1',
-    '\x0D': 'Possible Credited Coin Removal1'
+    STATUS_ESCROW_REQUEST: 'Escrow request1',
+    STATUS_CHANGER_PAYOUT_BUSY: 'Changer Payout Busy2',
+    STATUS_NO_CREDIT: 'No Credit1',
+    STATUS_DEFECTIVE_TUBE_SENSOR: 'Defective Tube Sensor1',
+    STATUS_DOUBLE_ARRIVAL: 'Double Arrival1',
+    STATUS_ACCEPTOR_UNPLUGGED: 'Acceptor Unplugged2',
+    STATUS_TUBE_JAM: 'Tube Jam1',
+    STATUS_ROM_CHECKSUM_ERROR: 'ROM checksum error1',
+    STATUS_COIN_ROUTING_ERROR: 'Coin Routing Error1',
+    STATUS_CHANGER_BUSY: 'Changer Busy2',
+    STATUS_CHANGER_RESET: 'Changer was Reset1',
+    STATUS_COIN_JAM: 'Coin Jam1',
+    STATUS_POSSIBLE_CREDITED_COIN_REMOVAL: 'Possible Credited Coin Removal1'
 }
 
-ERROR_CODE_DEFECTIVE_TUBE_SENSOR = 0x04
-ERROR_CODE_TUBE_JAM = 0x07
-ERROR_CODE_ROM_CHECKSUM_ERROR = 0x08
-ERROR_CODE_COIN_JAM = 0x0c
 
 ERROR_NAMES = {
-    '\x04': 'Defective Tube Sensor1',
-    '\x07': 'Tube Jam1',
-    '\x08': 'ROM checksum error1',
-    '\x0C': 'Coin Jam1'
+    ERROR_CODE_DEFECTIVE_TUBE_SENSOR: STATUS[ERROR_CODE_DEFECTIVE_TUBE_SENSOR],
+    ERROR_CODE_TUBE_JAM: STATUS[ERROR_CODE_TUBE_JAM],
+    ERROR_CODE_ROM_CHECKSUM_ERROR: STATUS[ERROR_CODE_ROM_CHECKSUM_ERROR],
+    ERROR_CODE_COIN_JAM: STATUS[ERROR_CODE_COIN_JAM]
 }
 
 _STATE_NAMES = {
-    '\x02': 'payout_busy',
-    '\x06': 'acceptor_unplugged',
-    '\x0A': 'changer_busy'
+    STATUS_CHANGER_PAYOUT_BUSY: 'payout_busy',
+    STATUS_ACCEPTOR_UNPLUGGED: 'acceptor_unplugged',
+    STATUS_CHANGER_BUSY: 'changer_busy'
 }
 
 STATES = {
-    'payout_busy':         False, #'Changer Payout Busy2',
-    'acceptor_unplugged':  False, #'Acceptor Unplugged2',
-    'changer_busy':        False  #'Changer Busy2'
+    _STATE_NAMES[STATUS_CHANGER_PAYOUT_BUSY]: False, #'Changer Payout Busy2',
+    _STATE_NAMES[STATUS_ACCEPTOR_UNPLUGGED]:  False, #'Acceptor Unplugged2',
+    _STATE_NAMES[STATUS_CHANGER_BUSY]:        False  #'Changer Busy2'
 }
 
 COINT_ROUTING = {
@@ -80,6 +95,10 @@ class Changer(MDBDevice):
     def __init__(self, proto, coins):
         super(Changer, self).__init__(proto)
         self._coins = coins
+        mask = 0
+        for c in coins:
+            mask |= 0x01 << c
+        self.coin_mask = hex(mask)[2:].zfill(4).decode('hex')
 
     def get_coin_count(self, coin):
         return self._coin_count[coin]
@@ -90,8 +109,7 @@ class Changer(MDBDevice):
         return self._coins[coin]
 
     def start_accept(self):
-        # TODO 
-        return self.coin_type(coins='\xFF\xFF')
+        return self.coin_type(coins=self.coin_mask)
 
     def stop_accept(self):
         return self.coin_type(coins='\x00\x00')
@@ -118,7 +136,8 @@ class Changer(MDBDevice):
             actual_coin_count = self.get_coin_count(coin_type)
             if coin_count > actual_coin_count:
                 coin_count = actual_coin_count
-            logger.debug("dispense_amount: {} coins({}) in amount {}".format(coin_count, coin_amount, balance))
+            logger.debug("dispense_amount: {} coins({}) in amount {}"
+                         .format(coin_count, coin_amount, balance))
             if coin_count > 0:
                 try:
                     balance -= coin_amount * coin_count
@@ -128,11 +147,14 @@ class Changer(MDBDevice):
         logger.debug("dispense_amount: end_balance={}".format(balance))
 
     def _dispense_amount_impl(self, coin, count):
-        logger.debug("_dispense_amount_impl: need dispense {} coins({})".format(count, coin))
+        logger.debug("_dispense_amount_impl: need dispense {} coins({})"
+                     .format(count, coin))
         dispense_count = count
         while dispense_count > 0:
-            coin_count = dispense_count if dispense_count <= COIN_TYPE_COUNT - 1 else COIN_TYPE_COUNT - 1
-            logger.debug("_dispense_amount_impl: need dispense {} coins({})".format(coin_count, coin))
+            coin_count = dispense_count \
+            if dispense_count <= COIN_TYPE_COUNT - 1 else COIN_TYPE_COUNT - 1
+            logger.debug("_dispense_amount_impl: need dispense {} coins({})"
+                         .format(coin_count, coin))
             # TODO wait change dispense end
             self.dispense(coin=coin, count=coin_count)
             dispense_count -= coin_count
@@ -151,7 +173,8 @@ class Changer(MDBDevice):
             actual_coin_count = self.get_coin_count(coin_type)
             if coin_count > actual_coin_count:
                 coin_count = actual_coin_count
-            logger.debug("can_dispense_amount: {} coins({}) in amount {}".format(coin_count, coin_amount, balance))
+            logger.debug("can_dispense_amount: {} coins({}) in amount {}"
+                         .format(coin_count, coin_amount, balance))
             if coin_count > 0:
                 balance -= coin_amount * coin_count
         logger.debug("can_dispense_amount: end_balance={}".format(balance))
@@ -181,7 +204,10 @@ class Changer(MDBDevice):
             try:
                 result = yield self.proto.mdb_init()
             except Exception as e:
-                yield task.deferLater(reactor, self.mdb_init_delay, defer.passthru, None)
+                yield task.deferLater(reactor,
+                                      self.mdb_init_delay, 
+                                      defer.passthru, 
+                                      None)
                 continue
             
             # reset and start polling    
@@ -194,7 +220,10 @@ class Changer(MDBDevice):
                 try_num += 1
                 if try_num > 1:
                     # sleep for timeout
-                    yield task.deferLater(reactor, self.reset_timeout, defer.passthru, None)
+                    yield task.deferLater(reactor,
+                                          self.reset_timeout, 
+                                          defer.passthru, 
+                                          None)
     
     @log_result
     def coin_type(self, coins):
@@ -223,7 +252,7 @@ class Changer(MDBDevice):
         result = ''
         try: 
             result = yield super(Changer, self).poll()
-        except Exception as e:
+        except Exception:
             return;
         
         if not result:
@@ -299,7 +328,7 @@ class Changer(MDBDevice):
 #                 elif r == '\x0A':
 #                     self.changer_busy2(r)
 #                 elif r == '\x0B':
-                if r == '\x0B':
+                if r == STATUS_CHANGER_RESET:
                     self.changer_was_reset1(r)
 #                 elif r == '\x0C':
 #                     self.coin_jam1(r)
@@ -354,9 +383,10 @@ class Changer(MDBDevice):
             sender=self, signal='initialized')
 
     def error(self, error_code, error_text):
-        logger.debug("changer error({}): {}".format(ord(error_code), error_text))
+        logger.debug("changer error({}): {}".format(error_code, error_text))
         dispatcher.send_minimal(
-            sender=self, signal='error', error_code=error_code, error_text=error_text)
+            sender=self,
+            signal='error', error_code=error_code, error_text=error_text)
 
     def dispensed(self, coin, count, in_tube=None):
         amount = self.get_coin_amount(coin)
@@ -412,3 +442,18 @@ class Changer(MDBDevice):
 
     def possible_credited_coin_removal1(self, status_code):
         pass
+
+    #######################
+    ## Public Methods
+    #######################
+
+    def get_total_amount(self):
+        amount = 0
+        for coin_type in self._coins:
+            coin_amount = self.get_coin_amount(coin_type)
+            if (coin_amount <= 0):
+                continue
+            coin_count = self.get_coin_count(coin_type)
+            amount += coin_amount * coin_count
+        
+        return amount

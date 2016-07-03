@@ -9,36 +9,52 @@ import logging
 
 logger = logging.getLogger('pymdb')
 
+ESCROW_STATUS_RETURN_BILL = '0x00'
+ESCROW_STATUS_STACK_BILL = '0x01'
+
+STATUS_DEFECTIVE_MOTOR = '\x01'
+STATUS_SENSOR_PROBLEM = '\x02'
+STATUS_VALIDATOR_BUSY = '\x03'
+STATUS_ROM_CHECKSUM_ERROR = '\x04'
+STATUS_VALIDATOR_JAMMED = '\x05'
+STATUS_VALIDATOR_RESET = '\x06'
+STATUS_BILL_REMOVED = '\x07'
+STATUS_CASH_BOX_OUT_OF_POSITION = '\x08'
+STATUS_VALIDATOR_DISABLED = '\x09'
+STATUS_INVALID_ESCROW_REQUEST = '\x0A'
+STATUS_BILL_REJECTED = '\x0B'
+STATUS_POSSIBLE_CREDITED_BILL_REMOVAL = '\x0C'
+
 STATUS = {
-    '\x01': 'Defective Motor3',
-    '\x02': 'Sensor Problem3',
-    '\x03': 'Validator Busy2',
-    '\x04': 'ROM Checksum Error3',
-    '\x05': 'Validator Jammed3',
-    '\x06': 'Validator was reset1',
-    '\x07': 'Bill Removed1',
-    '\x08': 'Cash Box out of position3',
-    '\x09': 'Validator Disabled2',
-    '\x0A': 'Invalid Escrow request1',
-    '\x0B': 'Bill Rejected1',
-    '\x0C': 'Possible Credited Bill Removal1'
+    STATUS_DEFECTIVE_MOTOR: 'Defective Motor3',
+    STATUS_SENSOR_PROBLEM: 'Sensor Problem3',
+    STATUS_VALIDATOR_BUSY: 'Validator Busy2',
+    STATUS_ROM_CHECKSUM_ERROR: 'ROM Checksum Error3',
+    STATUS_VALIDATOR_JAMMED: 'Validator Jammed3',
+    STATUS_VALIDATOR_RESET: 'Validator was reset1',
+    STATUS_BILL_REMOVED: 'Bill Removed1',
+    STATUS_CASH_BOX_OUT_OF_POSITION: 'Cash Box out of position3',
+    STATUS_VALIDATOR_DISABLED: 'Validator Disabled2',
+    STATUS_INVALID_ESCROW_REQUEST: 'Invalid Escrow request1',
+    STATUS_BILL_REJECTED: 'Bill Rejected1',
+    STATUS_POSSIBLE_CREDITED_BILL_REMOVAL: 'Possible Credited Bill Removal1'
 }
 
 _ERROR_NAMES = {
-    '\x01': 'Defective Motor3',
-    '\x02': 'Sensor Problem3',
-    '\x04': 'ROM Checksum Error3',
-    '\x05': 'Validator Jammed3'
+    STATUS_DEFECTIVE_MOTOR: STATUS[STATUS_DEFECTIVE_MOTOR],
+    STATUS_SENSOR_PROBLEM: STATUS[STATUS_SENSOR_PROBLEM],
+    STATUS_ROM_CHECKSUM_ERROR: STATUS[STATUS_ROM_CHECKSUM_ERROR],
+    STATUS_VALIDATOR_JAMMED: STATUS[STATUS_VALIDATOR_JAMMED]
 }
 
 _STATE_NAMES = {
-    '\x03': 'validator_busy',
-    '\x09': 'validator_disabled'
+    STATUS_VALIDATOR_BUSY: 'validator_busy',
+    STATUS_VALIDATOR_DISABLED: 'validator_disabled'
 }
 
 STATES = {
-    'validator_busy':      False, #'Validator Busy2',
-    'validator_disabled':  False  #'Validator Disabled2',
+    _STATE_NAMES[STATUS_VALIDATOR_BUSY]:      False, #'Validator Busy2',
+    _STATE_NAMES[STATUS_VALIDATOR_DISABLED]:  False  #'Validator Disabled2',
 }
 
 BILL_ROUTE_STACKED = 0
@@ -81,6 +97,19 @@ class BillValidator(MDBDevice):
     def __init__(self, proto, bills):
         super(BillValidator, self).__init__(proto)
         self._bills = bills
+        self._total_amount = 0
+        self._bill_count = 0
+        
+        mask = 0
+        for b in bills:
+            mask |= 0x01 << b
+        self.bill_mask = (hex(mask)[2:].zfill(4) * 2).decode('hex')
+
+    def start_accept(self):
+        return self.bill_type(bills=self.bill_mask)
+
+    def stop_accept(self):
+        return self.bill_type(bills='\x00\x00\x00\x00')
 
     def get_bill_amount(self, bill):
         if bill not in self._bills:
@@ -111,7 +140,10 @@ class BillValidator(MDBDevice):
             try:
                 result = yield self.proto.mdb_init()
             except Exception as e:
-                yield task.deferLater(reactor, self.mdb_init_delay, defer.passthru, None)
+                yield task.deferLater(reactor, 
+                                      self.mdb_init_delay, 
+                                      defer.passthru, 
+                                      None)
                 continue
             
             # reset and start polling    
@@ -124,14 +156,17 @@ class BillValidator(MDBDevice):
                 try_num += 1
                 if try_num > 1:
                     # sleep for timeout
-                    yield task.deferLater(reactor, self.reset_timeout, defer.passthru, None)
+                    yield task.deferLater(reactor, 
+                                          self.reset_timeout, 
+                                          defer.passthru, 
+                                          None)
 
 
     def stack_bill(self):
-        self.escrow(status='0x01')
+        self.escrow(status=ESCROW_STATUS_STACK_BILL)
 
     def return_bill(self):
-        self.escrow(status='0x00')
+        self.escrow(status=ESCROW_STATUS_RETURN_BILL)
         
     @log_result
     def bill_type(self, bills):
@@ -139,7 +174,7 @@ class BillValidator(MDBDevice):
         return self.call(request)
 
     @log_result
-    def escrow(self, status='\x00'):
+    def escrow(self, status=ESCROW_STATUS_RETURN_BILL):
         request = encode(self.commands['escrow'], status)
         return self.call(request)
 
@@ -148,10 +183,15 @@ class BillValidator(MDBDevice):
         request = encode(self.commands['stacker'])
         return self.call(request)
 
-#     @defer.inlineCallbacks
+    @defer.inlineCallbacks
+    def _define_bill_count(self):
+        result = yield self.stacker()
+        data = (ord(result[0]) << 8) | ord(result[1])
+        self._bill_count = data & 0x7fff
+
+    @defer.inlineCallbacks
     def _request_status(self):
-        #yield self._define_coin_count()
-        #TODO request validator status
+        yield self._define_bill_count()
         self.initialized()
 
 #     @defer.inlineCallbacks
@@ -171,7 +211,7 @@ class BillValidator(MDBDevice):
         result = ''
         try: 
             result = yield super(BillValidator, self).poll()
-        except Exception as e:
+        except Exception:
             return;
         
         if not result:
@@ -207,7 +247,8 @@ class BillValidator(MDBDevice):
         elif bill_route == BILL_ROUTE_RETURNED:
             self.fire_bill_returned(bill_type)
         else:
-            logger.debug('Unsupported bill routing: {} (bill_type={})'.format(bill_route, bill_type))
+            logger.debug('Unsupported bill routing: {} (bill_type={})'.
+                         format(bill_route, bill_type))
         
         
     def _parse_status(self, response):
@@ -223,7 +264,7 @@ class BillValidator(MDBDevice):
                 logger.debug("Status: {}".format(STATUS[r]))
                 if r in _STATE_NAMES:
                     self._set_state(_STATE_NAMES[r], True)
-                if r == '\x06':
+                if r == STATUS_VALIDATOR_RESET:
                     self.validator_was_reset1(r)
                 
                 if r in _ERROR_NAMES:
@@ -264,9 +305,11 @@ class BillValidator(MDBDevice):
             sender=self, signal='initialized')
 
     def error(self, error_code, error_text):
-        logger.debug("validator error({}): {}".format(ord(error_code), error_text))
+        logger.debug("validator error({}): {}".
+                     format(error_code, error_text))
         dispatcher.send_minimal(
-            sender=self, signal='error', error_code=error_code, error_text=error_text)
+            sender=self, 
+            signal='error', error_code=error_code, error_text=error_text)
 
     def fire_check_bill(self, bill_type):
         amount = self.get_bill_amount(bill_type)
@@ -277,6 +320,8 @@ class BillValidator(MDBDevice):
     def fire_bill_in(self, bill_type):
         amount = self.get_bill_amount(bill_type)
         logger.debug("Bill accepted ({})".format(amount))
+        self._total_amount += amount
+        self._bill_count += 1
         dispatcher.send_minimal(
             sender=self, signal='bill_in', amount=amount)
 
@@ -288,3 +333,16 @@ class BillValidator(MDBDevice):
 
     def validator_was_reset1(self, status_code):
         reactor.callLater(self.request_status_delay, self._request_status)
+        
+    #######################
+    ## Public Methods
+    #######################
+
+    def get_total_amount(self):
+        return self._total_amount
+    
+    def set_total_amount(self, amount=0):
+        self._total_amount = amount
+
+    def get_bill_count(self):
+        return self._bill_count
