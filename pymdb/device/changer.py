@@ -72,6 +72,7 @@ COINT_ROUTING = {
 }
 
 COIN_TYPE_COUNT = 0x10
+DISPENSED_COIN_MAX_COUNT = 0x0f
 
 class Changer(MDBDevice):
     
@@ -90,10 +91,9 @@ class Changer(MDBDevice):
         'dispense': '\x0D'
     }
 
-    _coin_count = [0] * COIN_TYPE_COUNT
-    
     def __init__(self, proto, coins):
         super(Changer, self).__init__(proto)
+        self._coin_count = [0] * COIN_TYPE_COUNT
         self._coins = coins
         mask = 0
         for c in coins:
@@ -122,29 +122,37 @@ class Changer(MDBDevice):
             return 0
         return amount // coin_amount
 
-    #TODO select algorithm into separate method
+#     def dispense_amount(self, amount):
+#         if amount <= 0:
+#             return
+#         balance = amount
+#         logger.debug("dispense_amount: start_balance={}".format(balance))
+#         for coin_type in range(COIN_TYPE_COUNT - 1,-1,-1):
+#             coin_amount = self.get_coin_amount(coin_type)
+#             if (coin_amount <= 0):
+#                 continue
+#             coin_count = self.coin_count_in_amount(coin_type, balance)
+#             actual_coin_count = self.get_coin_count(coin_type)
+#             if coin_count > actual_coin_count:
+#                 coin_count = actual_coin_count
+#             logger.debug("dispense_amount: {} coins({}) in amount {}"
+#                          .format(coin_count, coin_amount, balance))
+#             if coin_count > 0:
+#                 try:
+#                     balance -= coin_amount * coin_count
+#                     self._dispense_amount_impl(coin_type, coin_count)
+#                 except Exception as e:
+#                     logger.exception("While dispense amount")
+#         logger.debug("dispense_amount: end_balance={}".format(balance))
     def dispense_amount(self, amount):
         if amount <= 0:
             return
-        balance = amount
-        logger.debug("dispense_amount: start_balance={}".format(balance))
-        for coin_type in range(COIN_TYPE_COUNT - 1,-1,-1):
-            coin_amount = self.get_coin_amount(coin_type)
-            if (coin_amount <= 0):
-                continue
-            coin_count = self.coin_count_in_amount(coin_type, balance)
-            actual_coin_count = self.get_coin_count(coin_type)
-            if coin_count > actual_coin_count:
-                coin_count = actual_coin_count
-            logger.debug("dispense_amount: {} coins({}) in amount {}"
-                         .format(coin_count, coin_amount, balance))
-            if coin_count > 0:
-                try:
-                    balance -= coin_amount * coin_count
-                    self._dispense_amount_impl(coin_type, coin_count)
-                except Exception as e:
-                    logger.exception("While dispense amount")
-        logger.debug("dispense_amount: end_balance={}".format(balance))
+        exchange = self.get_amount_exchange(amount)
+        for coin_type in exchange:
+            try:
+                self._dispense_amount_impl(coin_type, exchange[coin_type])
+            except Exception as e:
+                logger.exception("While dispense amount")
 
     def _dispense_amount_impl(self, coin, count):
         logger.debug("_dispense_amount_impl: need dispense {} coins({})"
@@ -152,19 +160,37 @@ class Changer(MDBDevice):
         dispense_count = count
         while dispense_count > 0:
             coin_count = dispense_count \
-            if dispense_count <= COIN_TYPE_COUNT - 1 else COIN_TYPE_COUNT - 1
+            if dispense_count <= DISPENSED_COIN_MAX_COUNT \
+            else DISPENSED_COIN_MAX_COUNT
             logger.debug("_dispense_amount_impl: need dispense {} coins({})"
                          .format(coin_count, coin))
             # TODO wait change dispense end
             self.dispense(coin=coin, count=coin_count)
+            
+#             TODO for testing -->
+            self._coin_count[coin] -= count
+            self.dispensed(coin, coin_count)
+#             TODO for testing <--
+
             dispense_count -= coin_count
         
     def can_dispense_amount(self, amount):
         if not self._online:
             return False
+        exchange = self.get_amount_exchange(amount)
+        exchanged_amount = 0
+        for coin_type in exchange:
+            coin_amount = self.get_coin_amount(coin_type)
+            exchanged_amount += coin_amount * exchange[coin_type]
         
+        return exchanged_amount == amount
+
+    def get_amount_exchange(self, amount):
+        if (amount <= 0):
+            return {}
+        rv = {}
         balance = amount
-        logger.debug("can_dispense_amount: start_balance={}".format(balance))
+        logger.debug("get_amount_exchange: start_balance={}".format(balance))
         for coin_type in range(COIN_TYPE_COUNT - 1,-1,-1):
             coin_amount = self.get_coin_amount(coin_type)
             if (coin_amount <= 0):
@@ -173,12 +199,13 @@ class Changer(MDBDevice):
             actual_coin_count = self.get_coin_count(coin_type)
             if coin_count > actual_coin_count:
                 coin_count = actual_coin_count
-            logger.debug("can_dispense_amount: {} coins({}) in amount {}"
+            logger.debug("get_amount_exchange: {} coins({}) in amount {}"
                          .format(coin_count, coin_amount, balance))
             if coin_count > 0:
                 balance -= coin_amount * coin_count
-        logger.debug("can_dispense_amount: end_balance={}".format(balance))
-        return balance <= 0
+                rv[coin_type] = coin_count
+        logger.debug("get_amount_exchange: end_balance={}".format(balance))
+        return rv
 
     def start_device(self):
         if self._started:
@@ -276,8 +303,10 @@ class Changer(MDBDevice):
                 logger.debug("Coin dispensed")
                 coin_count = (ord(data) & ord('\x70'))
                 coin = (ord(data) & ord('\x0F'))
-                self._coin_count[coin] = coin_in_tube
-                self.dispensed(coin, coin_count, in_tube=coin_in_tube)
+                # TODO for testing -->
+#                 self._coin_count[coin] = coin_in_tube
+#                 self.dispensed(coin, coin_count, in_tube=coin_in_tube)
+                # TODO for testing <--
                 status_offset = 2
             elif (ord(data) & ord('\xC0')) >> 6:
                 routing = (ord(data) & ord('\x30')) >> 4
