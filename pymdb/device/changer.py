@@ -153,6 +153,7 @@ class Changer(MDBDevice):
                 self._dispense_amount_impl(coin_type, exchange[coin_type])
             except Exception as e:
                 logger.exception("While dispense amount")
+        self.amount_dispensed(amount)
 
     def _dispense_amount_impl(self, coin, count):
         logger.debug("_dispense_amount_impl: need dispense {} coins({})"
@@ -166,12 +167,6 @@ class Changer(MDBDevice):
                          .format(coin_count, coin))
             # TODO wait change dispense end
             self.dispense(coin=coin, count=coin_count)
-            
-#             TODO for testing -->
-            self._coin_count[coin] -= count
-            self.dispensed(coin, coin_count)
-#             TODO for testing <--
-
             dispense_count -= coin_count
         
     def can_dispense_amount(self, amount):
@@ -280,7 +275,7 @@ class Changer(MDBDevice):
         try: 
             result = yield super(Changer, self).poll()
         except Exception:
-            return;
+            return
         
         if not result:
             return
@@ -388,6 +383,10 @@ class Changer(MDBDevice):
         waiter = defer.Deferred()
         self.waiters.append(waiter)
         yield waiter
+        #             TODO for testing -->
+        self._coin_count[coin] -= count
+        #             TODO for testing <--
+
 
     def go_online(self):
         self.online()
@@ -417,13 +416,20 @@ class Changer(MDBDevice):
             sender=self,
             signal='error', error_code=error_code, error_text=error_text)
 
-    def dispensed(self, coin, count, in_tube=None):
-        amount = self.get_coin_amount(coin)
-        logger.debug(
-            "Coin dispensed({}): {}".format(count, amount))
-        if (count > 0) and (amount > 0):
+#     def dispensed(self, coin, count, in_tube=None):
+#         coin_amount = self.get_coin_amount(coin)
+#         logger.debug(
+#             "Coin dispensed({}): {}".format(count, coin_amount))
+#         if (count > 0) and (coin_amount > 0):
+#             amount = count * coin_amount
+#             dispatcher.send_minimal(
+#                 sender=self, signal='coin_out', amount=amount)
+
+    def amount_dispensed(self, amount):
+        logger.debug("Amount dispensed: {}".format(amount))
+        if (amount > 0):
             dispatcher.send_minimal(
-                sender=self, signal='coin_out', count=count, amount=amount)
+                sender=self, signal='coin_out', amount=amount)
 
     def deposited(self, coin, routing=1, in_tube=None):
         amount = self.get_coin_amount(coin)

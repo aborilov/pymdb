@@ -54,6 +54,7 @@ class MDB(LineReceiver):
     def rawDataReceived(self, data):
         self.data = self.data + data
 
+    @log_result
     def call(self, req):
         return self.lock.run(self._call, req)
 
