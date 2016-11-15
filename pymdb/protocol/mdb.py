@@ -39,7 +39,7 @@ MODEBIT = '/x01'
 
 class MDB(LineReceiver):
 
-    timeout = 0.3
+    timeout = 0.05
 
 
     def __init__(self):

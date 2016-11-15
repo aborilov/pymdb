@@ -153,7 +153,8 @@ class Changer(MDBDevice):
                 self._dispense_amount_impl(coin_type, exchange[coin_type])
             except Exception as e:
                 logger.exception("While dispense amount")
-        self.amount_dispensed(amount)
+        # fire when amount dispensed
+        # self.amount_dispensed(amount)
 
     def _dispense_amount_impl(self, coin, count):
         logger.debug("_dispense_amount_impl: need dispense {} coins({})"
@@ -385,6 +386,8 @@ class Changer(MDBDevice):
         yield waiter
         #             TODO for testing -->
         self._coin_count[coin] -= count
+        amount = self.get_coin_amount(coin=coin) * count
+        self.amount_dispensed(amount)
         #             TODO for testing <--
 
 
